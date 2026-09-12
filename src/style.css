@@ -1,0 +1,23 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #app { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: system-ui, sans-serif; }
+#c { display: block; width: 100%; height: 100%; }
+.panel {
+  position: fixed; top: 0; left: 0; width: 220px; height: 100%;
+  background: rgba(8, 8, 12, 0.9); color: #ddd; padding: 20px 14px;
+  border-right: 1px solid #222; z-index: 10;
+}
+.panel h2 { font-size: 1rem; font-weight: 600; margin-bottom: 14px; color: #fff; }
+.panel label { display: block; font-size: 0.85rem; margin-bottom: 12px; }
+.panel select, .panel button {
+  width: 100%; margin-top: 6px; padding: 8px; border-radius: 6px;
+  border: 1px solid #333; background: #16161c; color: #eee;
+}
+.panel button { cursor: pointer; margin-top: 8px; }
+.panel button:hover { background: #222; }
+.note { font-size: 0.75rem; color: #888; margin-top: 16px; line-height: 1.4; }
+.hud {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.75); color: #ccc; padding: 8px 16px;
+  border-radius: 999px; font-size: 0.85rem; z-index: 10; pointer-events: none;
+  border: 1px solid #222;
+}

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prism</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="c"></canvas>
+      <aside class="panel">
+        <h2>Light lab</h2>
+        <label>Tool
+          <select id="tool">
+            <option value="laser">Place laser</option>
+            <option value="mirror">Place mirror</option>
+            <option value="prism">Place prism</option>
+            <option value="rotate">Rotate</option>
+            <option value="erase">Erase</option>
+          </select>
+        </label>
+        <button id="clear" type="button">Clear optics</button>
+        <p class="note">White light only · Orthographic top-down · Click to place · Rotate tool then click optic</p>
+      </aside>
+      <div id="hud" class="hud">Click to place · Rotate tool spins optics · Rays reflect / refract as bright lines</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
