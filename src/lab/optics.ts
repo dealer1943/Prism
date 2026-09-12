@@ -59,27 +59,41 @@ export function makeLaserMesh(): THREE.Object3D {
 
 export function makeMirrorMesh(): THREE.Object3D {
   const g = new THREE.Group();
+  // Visible even in a black room: bright face + lit frame (avoid pure chrome on black).
   const glass = new THREE.Mesh(
-    new THREE.BoxGeometry(1.5, 0.1, 0.08),
+    new THREE.BoxGeometry(1.55, 0.12, 0.1),
     new THREE.MeshStandardMaterial({
-      color: 0xb8d4ff,
-      metalness: 0.95,
-      roughness: 0.08,
-      emissive: 0x101820,
-      emissiveIntensity: 0.15,
+      color: 0xd8e8ff,
+      metalness: 0.55,
+      roughness: 0.22,
+      emissive: 0x6a90c8,
+      emissiveIntensity: 0.55,
     }),
   );
-  glass.position.y = 0.12;
-  const back = new THREE.Mesh(
-    new THREE.BoxGeometry(1.55, 0.08, 0.05),
+  glass.position.y = 0.14;
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(1.7, 0.16, 0.14),
     new THREE.MeshStandardMaterial({
-      color: 0x3a3a48,
-      metalness: 0.7,
-      roughness: 0.4,
+      color: 0x8a90a0,
+      metalness: 0.45,
+      roughness: 0.45,
+      emissive: 0x222830,
+      emissiveIntensity: 0.25,
     }),
   );
-  back.position.set(0, 0.12, 0.07);
-  g.add(glass, back);
+  frame.position.set(0, 0.14, 0.02);
+  const stand = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.28, 0.12),
+    new THREE.MeshStandardMaterial({
+      color: 0x555566,
+      metalness: 0.5,
+      roughness: 0.5,
+      emissive: 0x111118,
+      emissiveIntensity: 0.2,
+    }),
+  );
+  stand.position.set(0, 0.02, 0.08);
+  g.add(frame, glass, stand);
   return g;
 }
 

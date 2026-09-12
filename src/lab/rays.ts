@@ -6,17 +6,39 @@ const IOR_WHITE = 1.52;
 const MAX_BOUNCES = 40;
 const MAX_DIST = 52;
 
-/** Spectral channels after prism dispersion (slight IOR spread). */
-export type SpectralId = "white" | "r" | "g" | "b";
+/** Spectral channels after prism dispersion (ROYGBIV). */
+export type SpectralId =
+  | "white"
+  | "red"
+  | "orange"
+  | "yellow"
+  | "green"
+  | "blue"
+  | "indigo"
+  | "violet";
 
 const SPECTRA: Record<
   Exclude<SpectralId, "white">,
   { ior: number; color: number; glow: number }
 > = {
-  r: { ior: 1.514, color: 0xff2a2a, glow: 0xff6666 },
-  g: { ior: 1.52, color: 0x2aff66, glow: 0x88ffaa },
-  b: { ior: 1.528, color: 0x4488ff, glow: 0x88aaff },
+  red: { ior: 1.513, color: 0xff1a1a, glow: 0xff5555 },
+  orange: { ior: 1.515, color: 0xff7a12, glow: 0xffaa55 },
+  yellow: { ior: 1.517, color: 0xffe014, glow: 0xfff088 },
+  green: { ior: 1.52, color: 0x1cff4a, glow: 0x88ffaa },
+  blue: { ior: 1.523, color: 0x1a6aff, glow: 0x6699ff },
+  indigo: { ior: 1.526, color: 0x4b0082, glow: 0x8866cc },
+  violet: { ior: 1.53, color: 0x9b30ff, glow: 0xcc88ff },
 };
+
+const ROYGBIV: Exclude<SpectralId, "white">[] = [
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "indigo",
+  "violet",
+];
 
 function iorFor(spectral: SpectralId): number {
   if (spectral === "white") return IOR_WHITE;
@@ -238,7 +260,7 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
   ];
 
   let steps = 0;
-  while (queue.length && steps++ < 120) {
+  while (queue.length && steps++ < 280) {
     const beam = queue.shift()!;
     if (beam.intensity < 0.05 || beam.depth > MAX_BOUNCES) continue;
 
@@ -312,17 +334,16 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
       continue;
     }
 
-    // Exiting prism: white splits into R/G/B with dispersion; colored stays its channel.
+    // Exiting prism: white → ROYGBIV laser fans; colored stays its channel.
     if (beam.spectral === "white") {
-      const channels: Exclude<SpectralId, "white">[] = ["r", "g", "b"];
-      for (const ch of channels) {
+      for (const ch of ROYGBIV) {
         const eta = SPECTRA[ch].ior; // n_glass / n_air when exiting
         const refracted = refract2d(beam.dir, hit.normal, eta);
         if (!refracted) {
           pushBeam(queue, {
             origin: nextOrigin,
             dir: reflect(beam.dir, hit.normal),
-            intensity: beam.intensity * 0.85,
+            intensity: beam.intensity * 0.8,
             skipId: hit.optic.id,
             insidePrismId: hit.optic.id,
             depth: beam.depth + 1,
@@ -332,7 +353,7 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
           pushBeam(queue, {
             origin: nextOrigin,
             dir: refracted,
-            intensity: beam.intensity * 0.88,
+            intensity: beam.intensity * 0.82,
             skipId: hit.optic.id,
             insidePrismId: null,
             depth: beam.depth + 1,

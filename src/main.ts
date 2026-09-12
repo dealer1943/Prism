@@ -63,11 +63,12 @@ camera.up.set(0, 0, -1);
 camera.lookAt(0, 0, 0);
 
 // Lab lighting — room stays black; standard materials need a little fill.
-scene.add(new THREE.AmbientLight(0x304050, 0.35));
-const key = new THREE.DirectionalLight(0xffffff, 0.55);
+scene.add(new THREE.AmbientLight(0x8090a8, 0.85));
+scene.add(new THREE.HemisphereLight(0xc8d8ff, 0x101018, 0.45));
+const key = new THREE.DirectionalLight(0xffffff, 0.9);
 key.position.set(4, 18, -6);
 scene.add(key);
-const fill = new THREE.DirectionalLight(0x6688aa, 0.25);
+const fill = new THREE.DirectionalLight(0x88aacc, 0.45);
 fill.position.set(-8, 12, 4);
 scene.add(fill);
 
