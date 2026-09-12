@@ -108,6 +108,26 @@ function prismVerts(o: Optic): THREE.Vector2[] {
   );
 }
 
+function prismFaces(o: Optic): { a: THREE.Vector2; b: THREE.Vector2; outward: THREE.Vector2; i: number }[] {
+  const verts = prismVerts(o);
+  const centroid = new THREE.Vector2(
+    (verts[0].x + verts[1].x + verts[2].x) / 3,
+    (verts[0].y + verts[1].y + verts[2].y) / 3,
+  );
+  const faces = [];
+  for (let i = 0; i < 3; i++) {
+    const a = verts[i];
+    const b = verts[(i + 1) % 3];
+    const edge = b.clone().sub(a);
+    let outward = new THREE.Vector2(-edge.y, edge.x).normalize();
+    const mid = a.clone().add(b).multiplyScalar(0.5);
+    // Ensure outward points away from centroid
+    if (outward.dot(mid.clone().sub(centroid)) < 0) outward.negate();
+    faces.push({ a, b, outward, i });
+  }
+  return faces;
+}
+
 function hitMirror(o: Optic, origin: THREE.Vector2, dir: THREE.Vector2) {
   const { a, b, normal } = mirrorSegment(o);
   const t = raySegIntersect(origin, dir, a, b);
@@ -117,20 +137,32 @@ function hitMirror(o: Optic, origin: THREE.Vector2, dir: THREE.Vector2) {
   return { t, normal: n };
 }
 
-function hitPrismFace(o: Optic, origin: THREE.Vector2, dir: THREE.Vector2) {
-  const verts = prismVerts(o);
+/** inside=false: only faces we approach from outside (dir·outward < 0).
+ *  inside=true: only faces we approach from inside (dir·outward > 0) = exits.
+ */
+function hitPrismFace(
+  o: Optic,
+  origin: THREE.Vector2,
+  dir: THREE.Vector2,
+  inside: boolean,
+  minT = 0.05,
+) {
   let bestT = Infinity;
   let bestN: THREE.Vector2 | null = null;
-  for (let i = 0; i < 3; i++) {
-    const a = verts[i];
-    const b = verts[(i + 1) % 3];
-    const t = raySegIntersect(origin, dir, a, b);
-    if (t !== null && t < bestT) {
+  for (const f of prismFaces(o)) {
+    const approach = dir.dot(f.outward);
+    if (!inside && approach >= -1e-6) continue; // not hitting from outside
+    if (inside && approach <= 1e-6) continue; // not leaving through this face
+    const t = raySegIntersect(origin, dir, f.a, f.b);
+    if (t !== null && t > minT && t < bestT) {
       bestT = t;
-      const edge = b.clone().sub(a);
-      const n = new THREE.Vector2(-edge.y, edge.x).normalize();
-      if (dir.dot(n) > 0) n.negate();
-      bestN = n;
+      // For refraction, normal should face against the incoming ray
+      bestN = inside ? f.outward.clone().negate() : f.outward.clone().negate();
+      // incoming from outside: outward points at us, we want normal opposing dir → -outward if dir·outward < 0
+      // actually dir·outward < 0 outside means outward faces somewhat toward source; normal for Snell often outward.
+      // Our refract2d expects normal that can be flipped via cosi. Use outward for enter (air→glass)
+      // and outward for exit (glass→air) as geometric surface normal pointing out of glass.
+      bestN = f.outward.clone();
     }
   }
   if (!bestN || !Number.isFinite(bestT)) return null;
@@ -280,7 +312,8 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
       if (o.kind === "mirror") {
         h = hitMirror(o, beam.origin, beam.dir);
       } else if (o.kind === "prism") {
-        h = hitPrismFace(o, beam.origin, beam.dir);
+        const inside = beam.insidePrismId === o.id;
+        h = hitPrismFace(o, beam.origin, beam.dir, inside, inside ? 0.08 : 0.05);
       }
       if (h && h.t > 0.035 && h.t < bestT) {
         bestT = h.t;
@@ -292,7 +325,7 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
     addRaySeg(rayGroup, beam.origin, end, beam.intensity, beam.spectral);
     if (!hit) continue;
 
-    const nextOrigin = end.clone().add(beam.dir.clone().multiplyScalar(0.04));
+    const nextOrigin = end.clone().add(beam.dir.clone().multiplyScalar(0.12));
 
     if (hit.optic.kind === "mirror") {
       pushBeam(queue, {
@@ -328,8 +361,8 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
         pushBeam(queue, {
           origin: nextOrigin,
           dir: refracted,
-          intensity: beam.intensity * 0.92,
-          skipId: hit.optic.id,
+          intensity: beam.intensity * 0.95,
+          skipId: null,
           insidePrismId: hit.optic.id,
           depth: beam.depth + 1,
           spectral: beam.spectral,
@@ -338,33 +371,31 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
       continue;
     }
 
-    // Exiting prism: white → ROYGBIV laser fans; colored stays its channel.
+    // Exiting prism: white becomes SEVEN distinct ROYGBIV lasers.
     if (beam.spectral === "white") {
-      for (const ch of ROYGBIV) {
-        const eta = SPECTRA[ch].ior; // n_glass / n_air when exiting
-        const refracted = refract2d(beam.dir, hit.normal, eta);
-        if (!refracted) {
-          pushBeam(queue, {
-            origin: nextOrigin,
-            dir: reflect(beam.dir, hit.normal),
-            intensity: beam.intensity * 0.8,
-            skipId: hit.optic.id,
-            insidePrismId: hit.optic.id,
-            depth: beam.depth + 1,
-            spectral: "white",
-          });
-        } else {
-          pushBeam(queue, {
-            origin: nextOrigin,
-            dir: refracted,
-            intensity: beam.intensity * 0.82,
-            skipId: hit.optic.id,
-            insidePrismId: null,
-            depth: beam.depth + 1,
-            spectral: ch,
-          });
+      const n = ROYGBIV.length;
+      ROYGBIV.forEach((ch, i) => {
+        const eta = SPECTRA[ch].ior;
+        let dirOut = refract2d(beam.dir, hit.normal, eta);
+        if (!dirOut) {
+          // Still emit a colored laser — fan around the unrefracted direction
+          dirOut = beam.dir.clone().normalize();
         }
-      }
+        // Extra angular spread so the seven lasers read as separate beams
+        const fan = ((i - (n - 1) / 2) * 2.8 * Math.PI) / 180; // ±~8.4° across ROYGBIV
+        const ca = Math.cos(fan);
+        const sa = Math.sin(fan);
+        dirOut = new THREE.Vector2(dirOut.x * ca - dirOut.y * sa, dirOut.x * sa + dirOut.y * ca).normalize();
+        pushBeam(queue, {
+          origin: nextOrigin.clone(),
+          dir: dirOut,
+          intensity: beam.intensity * 0.9,
+          skipId: hit.optic.id,
+          insidePrismId: null,
+          depth: beam.depth + 1,
+          spectral: ch,
+        });
+      });
     } else {
       const eta = iorFor(beam.spectral);
       const refracted = refract2d(beam.dir, hit.normal, eta);
