@@ -379,7 +379,7 @@ optics[2].angle = Math.PI / 5;
 optics[3].angle = Math.PI / 2.8;
 for (const o of optics) syncMesh(o);
 redraw();
-setHud("Right-click aim · double-click clone · white→RGB on prism exit");
+setHud("Right-click aim · double-click clone · white→ROYGBIV on prism exit");
 
 window.addEventListener("resize", () => {
   aspect = window.innerWidth / window.innerHeight;

@@ -21,14 +21,13 @@ const SPECTRA: Record<
   Exclude<SpectralId, "white">,
   { ior: number; color: number; glow: number }
 > = {
-  // Exact rainbow hex (user-specified)
-  red: { ior: 1.48, color: 0xff0000, glow: 0xff0000 },
-  orange: { ior: 1.5, color: 0xff7f00, glow: 0xff7f00 },
-  yellow: { ior: 1.52, color: 0xffff00, glow: 0xffff00 },
-  green: { ior: 1.54, color: 0x00ff00, glow: 0x00ff00 },
-  blue: { ior: 1.56, color: 0x0000ff, glow: 0x0000ff },
-  indigo: { ior: 1.58, color: 0x4b0082, glow: 0x4b0082 },
-  violet: { ior: 1.6, color: 0x8b00ff, glow: 0x8b00ff },
+  red: { ior: 1.514, color: 0xff0000, glow: 0xff3333 },
+  orange: { ior: 1.517, color: 0xff7f00, glow: 0xff9933 },
+  yellow: { ior: 1.52, color: 0xffff00, glow: 0xffff66 },
+  green: { ior: 1.526, color: 0x00ff00, glow: 0x66ff66 },
+  blue: { ior: 1.53, color: 0x0000ff, glow: 0x3366ff },
+  indigo: { ior: 1.534, color: 0x4b0082, glow: 0x6a1b9a },
+  violet: { ior: 1.538, color: 0x8b00ff, glow: 0xaa55ff },
 };
 
 const ROYGBIV: Exclude<SpectralId, "white">[] = [
@@ -195,17 +194,16 @@ function addRaySeg(
   spectral: SpectralId,
 ) {
   const { core } = beamColors(spectral);
-  const yCore = 0.2;
-  const yUnder = 0.12;
-  const ptsCore = [new THREE.Vector3(a.x, yCore, a.y), new THREE.Vector3(b.x, yCore, b.y)];
+  const yCore = 0.22;
+  const yUnder = 0.1;
+  const pts = [new THREE.Vector3(a.x, yCore, a.y), new THREE.Vector3(b.x, yCore, b.y)];
 
-  // Opaque core laser line
-  const coreGeo = new THREE.BufferGeometry().setFromPoints(ptsCore);
+  // Opaque core line — NormalBlending so ROYGBIV stays true (additive washes to white)
+  const coreGeo = new THREE.BufferGeometry().setFromPoints(pts);
   const coreMat = new THREE.LineBasicMaterial({
     color: core,
     transparent: true,
-    opacity: Math.min(1, 0.92 + intensity * 0.08),
-    blending: THREE.AdditiveBlending,
+    opacity: Math.min(1, 0.95 + intensity * 0.05),
     depthWrite: false,
   });
   rayGroup.add(new THREE.Line(coreGeo, coreMat));
@@ -220,14 +218,12 @@ function addRaySeg(
       new THREE.Vector3(dx, 0, dz).normalize(),
     );
 
-    // Bright opaque core volume
     const cyl = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.022, 0.022, len, 8, 1, true),
+      new THREE.CylinderGeometry(0.028, 0.028, len, 8, 1, true),
       new THREE.MeshBasicMaterial({
         color: core,
         transparent: true,
-        opacity: 0.95,
-        blending: THREE.AdditiveBlending,
+        opacity: 0.98,
         depthWrite: false,
       }),
     );
@@ -235,15 +231,15 @@ function addRaySeg(
     cyl.quaternion.copy(quat);
     rayGroup.add(cyl);
 
-    // Wider undersurface reflection (20% opacity)
+    // Wider undersurface reflection at 20% opacity
     const under = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.085, 0.085, len, 10, 1, true),
+      new THREE.CylinderGeometry(0.1, 0.1, len, 12, 1, true),
       new THREE.MeshBasicMaterial({
         color: core,
         transparent: true,
         opacity: 0.2,
-        blending: THREE.AdditiveBlending,
         depthWrite: false,
+        blending: THREE.NormalBlending,
       }),
     );
     under.position.set(mid.x, yUnder, mid.z);
@@ -369,23 +365,22 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
 
     // Exiting prism: white becomes SEVEN distinct ROYGBIV lasers.
     if (beam.spectral === "white") {
+      // One glass→air refract (eta = n_glass/n_air), then fan colors in angle
+      const base = refract2d(beam.dir, hit.normal, IOR_WHITE) ?? beam.dir.clone().normalize();
       const n = ROYGBIV.length;
       ROYGBIV.forEach((ch, i) => {
-        const eta = SPECTRA[ch].ior;
-        let dirOut = refract2d(beam.dir, hit.normal, eta);
-        if (!dirOut) {
-          // Still emit a colored laser — fan around the unrefracted direction
-          dirOut = beam.dir.clone().normalize();
-        }
-        // Extra angular spread so the seven lasers read as separate beams
-        const fan = ((i - (n - 1) / 2) * 2.8 * Math.PI) / 180; // ±~8.4° across ROYGBIV
+        // ~3.6° steps → ~±10.8° fan so all seven read as separate forward beams
+        const fan = ((i - (n - 1) / 2) * 3.6 * Math.PI) / 180;
         const ca = Math.cos(fan);
         const sa = Math.sin(fan);
-        dirOut = new THREE.Vector2(dirOut.x * ca - dirOut.y * sa, dirOut.x * sa + dirOut.y * ca).normalize();
+        const dirOut = new THREE.Vector2(
+          base.x * ca - base.y * sa,
+          base.x * sa + base.y * ca,
+        ).normalize();
         pushBeam(queue, {
           origin: nextOrigin.clone(),
           dir: dirOut,
-          intensity: beam.intensity * 0.9,
+          intensity: beam.intensity * 0.92,
           skipId: hit.optic.id,
           insidePrismId: null,
           depth: beam.depth + 1,
