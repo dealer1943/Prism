@@ -28,10 +28,17 @@
           <option value="rotate">rotate</option>
           <option value="erase">erase</option>
         </select>
+        <div class="persist">
+          <button id="save" type="button">Save</button>
+          <button id="load" type="button">Load</button>
+          <button id="export" type="button">Export JSON</button>
+          <button id="import" type="button">Import JSON</button>
+          <input id="importFile" type="file" accept="application/json,.json" hidden />
+        </div>
         <button id="clear" type="button" class="danger">Clear lab</button>
         <p class="note">
-          Drag optics to move. Scroll to aim. Prisms use enter/exit refraction with TIR.
-          S3 will add save/load layouts.
+          Drag to move · scroll to aim · prisms refract with TIR.
+          Save stores in this browser; Export downloads a shareable JSON layout.
         </p>
       </aside>
       <div id="hud" class="hud">Loading…</div>

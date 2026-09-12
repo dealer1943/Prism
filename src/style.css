@@ -32,3 +32,10 @@ html, body, #app { width: 100%; height: 100%; overflow: hidden; background: #000
 .tools button:hover { border-color: #555; }
 .tools button.active { background: #1e2436; border-color: #8af; color: #fff; }
 .panel button.danger { margin-top: 4px; }
+
+.persist { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.persist button {
+  width: 100%; margin: 0; padding: 8px; border-radius: 8px;
+  border: 1px solid #2a2a36; background: #12121a; color: #ddd; cursor: pointer; font-size: 0.8rem;
+}
+.persist button:hover { border-color: #666; }

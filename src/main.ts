@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { createOptic, syncMesh } from "./lab/optics";
 import { traceRays } from "./lab/rays";
 import type { Optic, OpticKind } from "./lab/types";
+import { saveLocal, loadLocal, downloadJson, parseLayoutFile, type Layout } from "./lab/persist";
 
 const canvas = document.getElementById("c") as HTMLCanvasElement;
 const toolEl = document.getElementById("tool") as HTMLSelectElement;
@@ -57,6 +58,21 @@ scene.add(rayGroup);
 
 function redraw() {
   traceRays(optics, rayGroup);
+}
+
+function clearOptics() {
+  optics.splice(0).forEach((o) => scene.remove(o.mesh));
+  redraw();
+}
+
+function applyLayout(layout: Layout) {
+  clearOptics();
+  for (const item of layout.optics) {
+    const o = createOptic(item.kind, item.x, item.z, item.angle);
+    scene.add(o.mesh);
+    optics.push(o);
+  }
+  redraw();
 }
 
 function place(kind: OpticKind, x: number, z: number) {
@@ -172,9 +188,46 @@ canvas.addEventListener(
 );
 
 clearBtn.addEventListener("click", () => {
-  optics.splice(0).forEach((o) => scene.remove(o.mesh));
-  redraw();
+  clearOptics();
   setHud("Cleared · place a laser to cast light");
+});
+
+const saveBtn = document.getElementById("save") as HTMLButtonElement;
+const loadBtn = document.getElementById("load") as HTMLButtonElement;
+const exportBtn = document.getElementById("export") as HTMLButtonElement;
+const importBtn = document.getElementById("import") as HTMLButtonElement;
+const importFile = document.getElementById("importFile") as HTMLInputElement;
+
+saveBtn.addEventListener("click", () => {
+  saveLocal(optics);
+  setHud("Saved layout in this browser");
+});
+loadBtn.addEventListener("click", () => {
+  const layout = loadLocal();
+  if (!layout || !layout.optics.length) {
+    setHud("No saved layout found");
+    return;
+  }
+  applyLayout(layout);
+  setHud(`Loaded ${layout.optics.length} optics from browser save`);
+});
+exportBtn.addEventListener("click", () => {
+  downloadJson(optics);
+  setHud("Exported prism-layout.json");
+});
+importBtn.addEventListener("click", () => importFile.click());
+importFile.addEventListener("change", async () => {
+  const file = importFile.files?.[0];
+  importFile.value = "";
+  if (!file) return;
+  const text = await file.text();
+  const layout = parseLayoutFile(text);
+  if (!layout) {
+    setHud("Invalid layout JSON");
+    return;
+  }
+  applyLayout(layout);
+  setHud(`Imported ${layout.optics.length} optics`);
 });
 
 function setHud(msg: string) {
@@ -206,7 +259,7 @@ optics[2].angle = Math.PI / 5;
 optics[3].angle = Math.PI / 2.8;
 for (const o of optics) syncMesh(o);
 redraw();
-setHud("S2: prisms refract (enter/exit + TIR) · 1/2/3 place · drag · scroll rotate");
+setHud("S3: save/load/export · prisms refract · drag move · scroll rotate");
 
 window.addEventListener("resize", () => {
   aspect = window.innerWidth / window.innerHeight;

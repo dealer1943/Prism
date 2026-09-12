@@ -25,6 +25,8 @@ Node `>=18 <21`. Works on Windows / Linux / macOS browsers.
 | `E` | Erase |
 | `M` / Shift-click | Move mode |
 | Clear lab | Reset |
+| Save / Load | Browser localStorage |
+| Export / Import JSON | Shareable layout file |
 
 ## Develop
 
@@ -42,7 +44,7 @@ src/
 
 - **S1 (done):** Laser + mirrors — place, drag, scroll-rotate, soft white beams, modular `lab/`
 - **S2 (done):** Prism enter/exit refraction + TIR, beam queue, button tool palette, demo layout
-- **S3 (next):** Save / load layouts (localStorage) + shareable JSON
+- **S3 (done):** Save / load (localStorage), export / import JSON layouts
 
 ## Roadmap
 
