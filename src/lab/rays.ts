@@ -169,6 +169,19 @@ function hitPrismFace(
   return { t: bestT, normal: bestN };
 }
 
+
+/** Keep continue-points on the correct side of a prism face (inside or outside). */
+const FACE_EPS = 0.018;
+
+function nudgeFromFace(
+  hitPoint: THREE.Vector2,
+  outward: THREE.Vector2,
+  side: "inside" | "outside",
+): THREE.Vector2 {
+  const sign = side === "inside" ? -1 : 1;
+  return hitPoint.clone().add(outward.clone().normalize().multiplyScalar(sign * FACE_EPS));
+}
+
 function clearRays(rayGroup: THREE.Group) {
   while (rayGroup.children.length) {
     const c = rayGroup.children[0];
@@ -305,9 +318,9 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
         h = hitMirror(o, beam.origin, beam.dir);
       } else if (o.kind === "prism") {
         const inside = beam.insidePrismId === o.id;
-        h = hitPrismFace(o, beam.origin, beam.dir, inside, inside ? 0.08 : 0.05);
+        h = hitPrismFace(o, beam.origin, beam.dir, inside, inside ? 0.02 : 0.03);
       }
-      if (h && h.t > 0.035 && h.t < bestT) {
+      if (h && h.t > 0.01 && h.t < bestT) {
         bestT = h.t;
         hit = { optic: o, normal: h.normal, t: h.t };
       }
@@ -317,12 +330,12 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
     addRaySeg(rayGroup, beam.origin, end, beam.intensity, beam.spectral);
     if (!hit) continue;
 
-    const nextOrigin = end.clone().add(beam.dir.clone().multiplyScalar(0.12));
-
+    // Mirror: tiny step along reflected path. Prism: stay on the face — nudge into glass on enter, out of glass on exit.
     if (hit.optic.kind === "mirror") {
+      const reflected = reflect(beam.dir, hit.normal);
       pushBeam(queue, {
-        origin: nextOrigin,
-        dir: reflect(beam.dir, hit.normal),
+        origin: end.clone().add(reflected.clone().multiplyScalar(FACE_EPS)),
+        dir: reflected,
         intensity: beam.intensity * 0.96,
         skipId: hit.optic.id,
         insidePrismId: null,
@@ -340,9 +353,10 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
       const eta = 1 / ior;
       const refracted = refract2d(beam.dir, hit.normal, eta);
       if (!refracted) {
+        const bounced = reflect(beam.dir, hit.normal);
         pushBeam(queue, {
-          origin: nextOrigin,
-          dir: reflect(beam.dir, hit.normal),
+          origin: nudgeFromFace(end, hit.normal, "outside"),
+          dir: bounced,
           intensity: beam.intensity * 0.92,
           skipId: hit.optic.id,
           insidePrismId: null,
@@ -350,8 +364,9 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
           spectral: beam.spectral,
         });
       } else {
+        // Continue from just inside the entry face so the path lives in the triangle
         pushBeam(queue, {
-          origin: nextOrigin,
+          origin: nudgeFromFace(end, hit.normal, "inside"),
           dir: refracted,
           intensity: beam.intensity * 0.95,
           skipId: null,
@@ -368,6 +383,7 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
       // One glass→air refract (eta = n_glass/n_air), then fan colors in angle
       const base = refract2d(beam.dir, hit.normal, IOR_WHITE) ?? beam.dir.clone().normalize();
       const n = ROYGBIV.length;
+      const exitOrigin = nudgeFromFace(end, hit.normal, "outside");
       ROYGBIV.forEach((ch, i) => {
         // ~3.6° steps → ~±10.8° fan so all seven read as separate forward beams
         const fan = ((i - (n - 1) / 2) * 3.6 * Math.PI) / 180;
@@ -378,7 +394,7 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
           base.x * sa + base.y * ca,
         ).normalize();
         pushBeam(queue, {
-          origin: nextOrigin.clone(),
+          origin: exitOrigin.clone(),
           dir: dirOut,
           intensity: beam.intensity * 0.92,
           skipId: hit.optic.id,
@@ -391,9 +407,10 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
       const eta = iorFor(beam.spectral);
       const refracted = refract2d(beam.dir, hit.normal, eta);
       if (!refracted) {
+        const bounced = reflect(beam.dir, hit.normal);
         pushBeam(queue, {
-          origin: nextOrigin,
-          dir: reflect(beam.dir, hit.normal),
+          origin: nudgeFromFace(end, hit.normal, "inside"),
+          dir: bounced,
           intensity: beam.intensity * 0.92,
           skipId: hit.optic.id,
           insidePrismId: hit.optic.id,
@@ -402,7 +419,7 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
         });
       } else {
         pushBeam(queue, {
-          origin: nextOrigin,
+          origin: nudgeFromFace(end, hit.normal, "outside"),
           dir: refracted,
           intensity: beam.intensity * 0.9,
           skipId: hit.optic.id,
