@@ -21,13 +21,13 @@ const SPECTRA: Record<
   Exclude<SpectralId, "white">,
   { ior: number; color: number; glow: number }
 > = {
-  red: { ior: 1.513, color: 0xff1a1a, glow: 0xff5555 },
-  orange: { ior: 1.515, color: 0xff7a12, glow: 0xffaa55 },
-  yellow: { ior: 1.517, color: 0xffe014, glow: 0xfff088 },
-  green: { ior: 1.52, color: 0x1cff4a, glow: 0x88ffaa },
-  blue: { ior: 1.523, color: 0x1a6aff, glow: 0x6699ff },
-  indigo: { ior: 1.526, color: 0x4b0082, glow: 0x8866cc },
-  violet: { ior: 1.53, color: 0x9b30ff, glow: 0xcc88ff },
+  red: { ior: 1.48, color: 0xff1a1a, glow: 0xff5555 },
+  orange: { ior: 1.50, color: 0xff7a12, glow: 0xffaa55 },
+  yellow: { ior: 1.52, color: 0xffe014, glow: 0xfff088 },
+  green: { ior: 1.54, color: 0x1cff4a, glow: 0x88ffaa },
+  blue: { ior: 1.56, color: 0x1a6aff, glow: 0x6699ff },
+  indigo: { ior: 1.58, color: 0x5b2dff, glow: 0x8866cc },
+  violet: { ior: 1.60, color: 0x9b30ff, glow: 0xcc88ff },
 };
 
 const ROYGBIV: Exclude<SpectralId, "white">[] = [
@@ -268,14 +268,18 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
     let hit: { optic: Optic; normal: THREE.Vector2; t: number } | null = null;
 
     for (const o of optics) {
-      if (o.id === beam.skipId) continue;
       if (o.kind === "laser") continue;
+      // While inside a prism, only that prism may be hit (for exit / TIR).
+      // Do NOT skip the current prism via skipId — that blocked exit faces.
+      if (beam.insidePrismId !== null) {
+        if (o.kind !== "prism" || o.id !== beam.insidePrismId) continue;
+      } else if (o.id === beam.skipId) {
+        continue;
+      }
       let h: { t: number; normal: THREE.Vector2 } | null = null;
       if (o.kind === "mirror") {
-        if (beam.insidePrismId !== null) continue;
         h = hitMirror(o, beam.origin, beam.dir);
       } else if (o.kind === "prism") {
-        if (beam.insidePrismId !== null && beam.insidePrismId !== o.id) continue;
         h = hitPrismFace(o, beam.origin, beam.dir);
       }
       if (h && h.t > 0.035 && h.t < bestT) {
