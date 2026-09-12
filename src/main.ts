@@ -1,14 +1,31 @@
 import * as THREE from "three";
-import { createOptic, syncMesh } from "./lab/optics";
+import { createOptic, syncMesh, opticTangent } from "./lab/optics";
 import { traceRays } from "./lab/rays";
 import type { Optic, OpticKind } from "./lab/types";
-import { saveLocal, loadLocal, downloadJson, parseLayoutFile, type Layout } from "./lab/persist";
+import {
+  saveLocal,
+  loadLocal,
+  downloadJson,
+  parseLayoutFile,
+  type Layout,
+} from "./lab/persist";
+import {
+  openRotateRing,
+  openActionRing,
+  closeRingMenu,
+  isRingMenuOpen,
+} from "./ui/ringMenu";
 
 const canvas = document.getElementById("c") as HTMLCanvasElement;
 const toolEl = document.getElementById("tool") as HTMLSelectElement;
 const clearBtn = document.getElementById("clear") as HTMLButtonElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
 const toolsRoot = document.getElementById("tools");
+const saveBtn = document.getElementById("save") as HTMLButtonElement | null;
+const loadBtn = document.getElementById("load") as HTMLButtonElement | null;
+const exportBtn = document.getElementById("export") as HTMLButtonElement | null;
+const importBtn = document.getElementById("import") as HTMLButtonElement | null;
+const importFile = document.getElementById("importFile") as HTMLInputElement | null;
 
 function setTool(name: string) {
   toolEl.value = name;
@@ -26,6 +43,9 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x000000);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
 
 const scene = new THREE.Scene();
 const viewH = 22;
@@ -42,9 +62,18 @@ camera.position.set(0, 24, 0);
 camera.up.set(0, 0, -1);
 camera.lookAt(0, 0, 0);
 
+// Lab lighting — room stays black; standard materials need a little fill.
+scene.add(new THREE.AmbientLight(0x304050, 0.35));
+const key = new THREE.DirectionalLight(0xffffff, 0.55);
+key.position.set(4, 18, -6);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0x6688aa, 0.25);
+fill.position.set(-8, 12, 4);
+scene.add(fill);
+
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(80, 80),
-  new THREE.MeshBasicMaterial({ color: 0x030306 }),
+  new THREE.MeshStandardMaterial({ color: 0x030306, metalness: 0.2, roughness: 0.9 }),
 );
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
@@ -89,7 +118,7 @@ function place(kind: OpticKind, x: number, z: number) {
   scene.add(o.mesh);
   optics.push(o);
   redraw();
-  setHud(`${kind} placed · drag to move · scroll to rotate`);
+  setHud(`${kind} placed · drag to move · right-click rotate · double-click clone`);
 }
 
 function screenToWorld(clientX: number, clientY: number): THREE.Vector3 {
@@ -99,6 +128,14 @@ function screenToWorld(clientX: number, clientY: number): THREE.Vector3 {
   );
   const v = new THREE.Vector3(ndc.x, ndc.y, 0).unproject(camera);
   return new THREE.Vector3(v.x, 0, v.z);
+}
+
+function worldToScreen(x: number, z: number): { x: number; y: number } {
+  const v = new THREE.Vector3(x, 0, z).project(camera);
+  return {
+    x: ((v.x + 1) / 2) * window.innerWidth,
+    y: ((-v.y + 1) / 2) * window.innerHeight,
+  };
 }
 
 function nearest(x: number, z: number, maxDist = 1.35): Optic | null {
@@ -116,20 +153,98 @@ function nearest(x: number, z: number, maxDist = 1.35): Optic | null {
 
 type DragMode = null | { optic: Optic; ox: number; oz: number; px: number; pz: number };
 let drag: DragMode = null;
+let suppressClickUntil = 0;
 
-canvas.addEventListener("pointerdown", (e) => {
-  const w = screenToWorld(e.clientX, e.clientY);
-  const tool = toolEl.value;
+function cloneOptic(o: Optic) {
+  if (o.kind === "laser") {
+    setHud("Only one laser — clone disabled (move the laser instead)");
+    return;
+  }
+  const t = opticTangent(o).multiplyScalar(0.8);
+  const clone = createOptic(o.kind, o.pos.x + t.x, o.pos.y + t.y, o.angle);
+  scene.add(clone.mesh);
+  optics.push(clone);
+  redraw();
+  setHud(`Cloned ${o.kind} · offset along tangent`);
+}
 
-  if (tool === "rotate") {
-    const o = nearest(w.x, w.z);
-    if (o) {
-      o.angle += Math.PI / 12;
+function openRotateFor(o: Optic, clientX: number, clientY: number) {
+  const scr = worldToScreen(o.pos.x, o.pos.y);
+  // Prefer object projection; fall back to click if offscreen
+  const x = Number.isFinite(scr.x) ? scr.x : clientX;
+  const y = Number.isFinite(scr.y) ? scr.y : clientY;
+  openRotateRing({
+    x,
+    y,
+    angle: o.angle,
+    onChange: (rad) => {
+      o.angle = rad;
       syncMesh(o);
       redraw();
+    },
+    onClose: () => {
+      const deg = Math.round((((o.angle * 180) / Math.PI) % 360 + 360) % 360);
+      setHud(`Aimed ${String(deg).padStart(3, "0")}° · right-click to fine-tune`);
+    },
+  });
+}
+
+function openActionsFor(o: Optic, clientX: number, clientY: number) {
+  const scr = worldToScreen(o.pos.x, o.pos.y);
+  const x = Number.isFinite(scr.x) ? scr.x : clientX;
+  const y = Number.isFinite(scr.y) ? scr.y : clientY;
+  const isLaser = o.kind === "laser";
+  openActionRing({
+    x,
+    y,
+    items: [
+      {
+        id: "clone",
+        label: "Clone",
+        disabled: isLaser,
+        note: isLaser ? "Only one laser allowed" : undefined,
+      },
+    ],
+    onSelect: (id) => {
+      if (id === "clone") cloneOptic(o);
+    },
+    onClose: () => {},
+  });
+}
+
+// Prevent browser context menu on canvas right-click
+canvas.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+});
+
+canvas.addEventListener("pointerdown", (e) => {
+  // Right-click → ring rotate; do not start drag
+  if (e.button === 2) {
+    e.preventDefault();
+    drag = null;
+    const w = screenToWorld(e.clientX, e.clientY);
+    const o = nearest(w.x, w.z, 1.6);
+    if (o) {
+      suppressClickUntil = performance.now() + 400;
+      openRotateFor(o, e.clientX, e.clientY);
+    } else if (isRingMenuOpen()) {
+      closeRingMenu();
     }
     return;
   }
+
+  if (e.button !== 0) return;
+  if (isRingMenuOpen()) return;
+  if (performance.now() < suppressClickUntil) return;
+  // Second click of a double-click: do not start drag / place
+  if (e.detail >= 2) {
+    drag = null;
+    return;
+  }
+
+  const w = screenToWorld(e.clientX, e.clientY);
+  const tool = toolEl.value;
+
   if (tool === "erase") {
     const o = nearest(w.x, w.z);
     if (o) {
@@ -149,7 +264,6 @@ canvas.addEventListener("pointerdown", (e) => {
     }
   }
   if (tool === "laser" || tool === "mirror" || tool === "prism") {
-    // click empty = place; click existing = start drag
     const o = nearest(w.x, w.z, 0.9);
     if (o) {
       drag = { optic: o, ox: o.pos.x, oz: o.pos.y, px: w.x, pz: w.z };
@@ -158,6 +272,15 @@ canvas.addEventListener("pointerdown", (e) => {
     }
     place(tool, w.x, w.z);
   }
+});
+
+canvas.addEventListener("dblclick", (e) => {
+  e.preventDefault();
+  drag = null;
+  suppressClickUntil = performance.now() + 400;
+  const w = screenToWorld(e.clientX, e.clientY);
+  const o = nearest(w.x, w.z, 1.5);
+  if (o) openActionsFor(o, e.clientX, e.clientY);
 });
 
 canvas.addEventListener("pointermove", (e) => {
@@ -169,7 +292,7 @@ canvas.addEventListener("pointermove", (e) => {
 });
 
 canvas.addEventListener("pointerup", () => {
-  if (drag) setHud("Moved · scroll over optic to rotate");
+  if (drag) setHud("Moved · right-click optic to aim · double-click to clone");
   drag = null;
 });
 
@@ -177,10 +300,12 @@ canvas.addEventListener(
   "wheel",
   (e) => {
     e.preventDefault();
+    if (isRingMenuOpen()) return;
     const w = screenToWorld(e.clientX, e.clientY);
     const o = nearest(w.x, w.z, 1.6);
     if (!o) return;
-    o.angle += Math.sign(e.deltaY) * (Math.PI / 36);
+    // Coarse scroll still available; primary aim is the ring dial
+    o.angle += Math.sign(e.deltaY) * (Math.PI / 180);
     syncMesh(o);
     redraw();
   },
@@ -192,36 +317,30 @@ clearBtn.addEventListener("click", () => {
   setHud("Cleared · place a laser to cast light");
 });
 
-const saveBtn = document.getElementById("save") as HTMLButtonElement;
-const loadBtn = document.getElementById("load") as HTMLButtonElement;
-const exportBtn = document.getElementById("export") as HTMLButtonElement;
-const importBtn = document.getElementById("import") as HTMLButtonElement;
-const importFile = document.getElementById("importFile") as HTMLInputElement;
-
-saveBtn.addEventListener("click", () => {
+saveBtn?.addEventListener("click", () => {
   saveLocal(optics);
-  setHud("Saved layout in this browser");
+  setHud("Saved layout to this browser");
 });
-loadBtn.addEventListener("click", () => {
+loadBtn?.addEventListener("click", () => {
   const layout = loadLocal();
-  if (!layout || !layout.optics.length) {
+  if (!layout) {
     setHud("No saved layout found");
     return;
   }
   applyLayout(layout);
-  setHud(`Loaded ${layout.optics.length} optics from browser save`);
+  setHud("Loaded saved layout");
 });
-exportBtn.addEventListener("click", () => {
+exportBtn?.addEventListener("click", () => {
   downloadJson(optics);
   setHud("Exported prism-layout.json");
 });
-importBtn.addEventListener("click", () => importFile.click());
-importFile.addEventListener("change", async () => {
+importBtn?.addEventListener("click", () => importFile?.click());
+importFile?.addEventListener("change", async () => {
   const file = importFile.files?.[0];
-  importFile.value = "";
   if (!file) return;
   const text = await file.text();
   const layout = parseLayoutFile(text);
+  importFile.value = "";
   if (!layout) {
     setHud("Invalid layout JSON");
     return;
@@ -235,21 +354,21 @@ function setHud(msg: string) {
 }
 
 window.addEventListener("keydown", (e) => {
+  if (isRingMenuOpen() && e.key === "Escape") return; // ringMenu handles Esc
   const k = e.key.toLowerCase();
   if (k === "1") setTool("laser");
   if (k === "2") setTool("mirror");
   if (k === "3") setTool("prism");
-  if (k === "r") setTool("rotate");
   if (k === "e") setTool("erase");
   if (k === "m") setTool("move");
   if (k === "c" && (e.ctrlKey || e.metaKey)) return;
-  if (k === "escape") {
-    optics.splice(0).forEach((o) => scene.remove(o.mesh));
+  if (k === "escape" && !isRingMenuOpen()) {
+    clearOptics();
     redraw();
   }
 });
 
-// Starter: laser → mirror → prism (S2 demo path)
+// Starter: laser → mirror → prism (dispersion demo path)
 place("laser", -8, 0);
 place("mirror", -2, 3.5);
 place("prism", 2.5, 0.5);
@@ -259,7 +378,7 @@ optics[2].angle = Math.PI / 5;
 optics[3].angle = Math.PI / 2.8;
 for (const o of optics) syncMesh(o);
 redraw();
-setHud("S3: save/load/export · prisms refract · drag move · scroll rotate");
+setHud("Right-click aim · double-click clone · white→RGB on prism exit");
 
 window.addEventListener("resize", () => {
   aspect = window.innerWidth / window.innerHeight;

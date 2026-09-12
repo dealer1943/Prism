@@ -5,36 +5,78 @@ let nextId = 1;
 
 export function makeLaserMesh(): THREE.Object3D {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(0.7, 0.22, 0.38),
-    new THREE.MeshBasicMaterial({ color: 0xf5f5f5 }),
-  );
-  body.position.set(0, 0.12, 0);
-  const nose = new THREE.Mesh(
-    new THREE.ConeGeometry(0.11, 0.4, 10),
-    new THREE.MeshBasicMaterial({ color: 0xffffff }),
-  );
-  nose.rotation.z = -Math.PI / 2;
-  nose.position.set(0.48, 0.12, 0);
-  const glow = new THREE.Mesh(
-    new THREE.SphereGeometry(0.08, 8, 8),
-    new THREE.MeshBasicMaterial({ color: 0xffffff }),
-  );
-  glow.position.set(0.68, 0.12, 0);
-  g.add(body, nose, glow);
+
+  const barrelMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1a1e,
+    metalness: 0.92,
+    roughness: 0.28,
+  });
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: 0x2a2a32,
+    metalness: 0.85,
+    roughness: 0.35,
+  });
+  const apertureMat = new THREE.MeshStandardMaterial({
+    color: 0x050508,
+    metalness: 0.4,
+    roughness: 0.6,
+  });
+  const tipMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: 0xffffff,
+    emissiveIntensity: 2.4,
+    metalness: 0.1,
+    roughness: 0.4,
+  });
+
+  // Cylindrical body along +X
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.72, 20), barrelMat);
+  body.rotation.z = Math.PI / 2;
+  body.position.set(0.05, 0.14, 0);
+
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.08, 20), accentMat);
+  collar.rotation.z = Math.PI / 2;
+  collar.position.set(-0.28, 0.14, 0);
+
+  const nose = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 0.22, 16), barrelMat);
+  nose.rotation.z = Math.PI / 2;
+  nose.position.set(0.48, 0.14, 0);
+
+  // Recessed aperture ring
+  const aperture = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.04, 16), apertureMat);
+  aperture.rotation.z = Math.PI / 2;
+  aperture.position.set(0.6, 0.14, 0);
+
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 12), tipMat);
+  tip.position.set(0.68, 0.14, 0);
+
+  const light = new THREE.PointLight(0xffffff, 1.6, 4.5, 2);
+  light.position.set(0.72, 0.14, 0);
+
+  g.add(body, collar, nose, aperture, tip, light);
   return g;
 }
 
 export function makeMirrorMesh(): THREE.Object3D {
   const g = new THREE.Group();
   const glass = new THREE.Mesh(
-    new THREE.BoxGeometry(1.5, 0.1, 0.1),
-    new THREE.MeshBasicMaterial({ color: 0xc8e0ff }),
+    new THREE.BoxGeometry(1.5, 0.1, 0.08),
+    new THREE.MeshStandardMaterial({
+      color: 0xb8d4ff,
+      metalness: 0.95,
+      roughness: 0.08,
+      emissive: 0x101820,
+      emissiveIntensity: 0.15,
+    }),
   );
   glass.position.y = 0.12;
   const back = new THREE.Mesh(
     new THREE.BoxGeometry(1.55, 0.08, 0.05),
-    new THREE.MeshBasicMaterial({ color: 0x555566 }),
+    new THREE.MeshStandardMaterial({
+      color: 0x3a3a48,
+      metalness: 0.7,
+      roughness: 0.4,
+    }),
   );
   back.position.set(0, 0.12, 0.07);
   g.add(glass, back);
@@ -52,7 +94,15 @@ export function makePrismMesh(): THREE.Object3D {
   geo.translate(0, 0.14, 0);
   return new THREE.Mesh(
     geo,
-    new THREE.MeshBasicMaterial({ color: 0xd8f0ff, transparent: true, opacity: 0.5 }),
+    new THREE.MeshStandardMaterial({
+      color: 0xcfe8ff,
+      metalness: 0.05,
+      roughness: 0.12,
+      transparent: true,
+      opacity: 0.42,
+      emissive: 0x203040,
+      emissiveIntensity: 0.2,
+    }),
   );
 }
 
@@ -78,4 +128,9 @@ export function laserOrigin(o: Optic): THREE.Vector2 {
 
 export function laserDir(o: Optic): THREE.Vector2 {
   return new THREE.Vector2(Math.cos(o.angle), Math.sin(o.angle)).normalize();
+}
+
+/** Tangent (perpendicular to aim) for clone offset. */
+export function opticTangent(o: Optic): THREE.Vector2 {
+  return new THREE.Vector2(-Math.sin(o.angle), Math.cos(o.angle));
 }

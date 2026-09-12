@@ -2,9 +2,26 @@ import * as THREE from "three";
 import type { Optic } from "./types";
 import { laserDir, laserOrigin } from "./optics";
 
-const IOR = 1.52;
+const IOR_WHITE = 1.52;
 const MAX_BOUNCES = 40;
 const MAX_DIST = 52;
+
+/** Spectral channels after prism dispersion (slight IOR spread). */
+export type SpectralId = "white" | "r" | "g" | "b";
+
+const SPECTRA: Record<
+  Exclude<SpectralId, "white">,
+  { ior: number; color: number; glow: number }
+> = {
+  r: { ior: 1.514, color: 0xff2a2a, glow: 0xff6666 },
+  g: { ior: 1.52, color: 0x2aff66, glow: 0x88ffaa },
+  b: { ior: 1.528, color: 0x4488ff, glow: 0x88aaff },
+};
+
+function iorFor(spectral: SpectralId): number {
+  if (spectral === "white") return IOR_WHITE;
+  return SPECTRA[spectral].ior;
+}
 
 function reflect(dir: THREE.Vector2, normal: THREE.Vector2): THREE.Vector2 {
   const n = normal.clone().normalize();
@@ -90,7 +107,6 @@ function hitPrismFace(o: Optic, origin: THREE.Vector2, dir: THREE.Vector2) {
       bestT = t;
       const edge = b.clone().sub(a);
       const n = new THREE.Vector2(-edge.y, edge.x).normalize();
-      // outward-ish: point against incoming
       if (dir.dot(n) > 0) n.negate();
       bestN = n;
     }
@@ -101,29 +117,90 @@ function hitPrismFace(o: Optic, origin: THREE.Vector2, dir: THREE.Vector2) {
 
 function clearRays(rayGroup: THREE.Group) {
   while (rayGroup.children.length) {
-    const c = rayGroup.children[0] as THREE.Line;
+    const c = rayGroup.children[0];
     rayGroup.remove(c);
-    c.geometry.dispose();
-    (c.material as THREE.Material).dispose();
+    if (c instanceof THREE.Line || c instanceof THREE.Mesh) {
+      c.geometry.dispose();
+      const mats = Array.isArray(c.material) ? c.material : [c.material];
+      for (const m of mats) m.dispose();
+    }
   }
 }
 
-function addRaySeg(rayGroup: THREE.Group, a: THREE.Vector2, b: THREE.Vector2, intensity: number) {
-  const pts = [new THREE.Vector3(a.x, 0.16, a.y), new THREE.Vector3(b.x, 0.16, b.y)];
-  const geo = new THREE.BufferGeometry().setFromPoints(pts);
-  const mat = new THREE.LineBasicMaterial({
-    color: 0xffffff,
+function beamColors(spectral: SpectralId): { core: number; glow: number } {
+  if (spectral === "white") return { core: 0xffffff, glow: 0xaaccff };
+  return { core: SPECTRA[spectral].color, glow: SPECTRA[spectral].glow };
+}
+
+function addRaySeg(
+  rayGroup: THREE.Group,
+  a: THREE.Vector2,
+  b: THREE.Vector2,
+  intensity: number,
+  spectral: SpectralId,
+) {
+  const { core, glow } = beamColors(spectral);
+  const y = 0.18;
+  const pts = [new THREE.Vector3(a.x, y, a.y), new THREE.Vector3(b.x, y, b.y)];
+
+  // Soft glow halo (additive)
+  const glowGeo = new THREE.BufferGeometry().setFromPoints(pts);
+  const glowMat = new THREE.LineBasicMaterial({
+    color: glow,
     transparent: true,
-    opacity: Math.min(1, 0.45 + intensity * 0.55),
+    opacity: Math.min(0.55, 0.18 + intensity * 0.35),
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
   });
-  rayGroup.add(new THREE.Line(geo, mat));
-  const geo2 = new THREE.BufferGeometry().setFromPoints(pts);
-  const mat2 = new THREE.LineBasicMaterial({
-    color: 0xffffff,
+  rayGroup.add(new THREE.Line(glowGeo, glowMat));
+
+  // Bright core
+  const coreGeo = new THREE.BufferGeometry().setFromPoints(pts);
+  const coreMat = new THREE.LineBasicMaterial({
+    color: core,
     transparent: true,
-    opacity: Math.min(0.4, 0.14 + intensity * 0.22),
+    opacity: Math.min(1, 0.55 + intensity * 0.45),
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
   });
-  rayGroup.add(new THREE.Line(geo2, mat2));
+  rayGroup.add(new THREE.Line(coreGeo, coreMat));
+
+  // Thin cylinder for volume feel when segment is long enough
+  const dx = b.x - a.x;
+  const dz = b.y - a.y;
+  const len = Math.hypot(dx, dz);
+  if (len > 0.15) {
+    const cyl = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.018, 0.018, len, 6, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: core,
+        transparent: true,
+        opacity: Math.min(0.85, 0.35 + intensity * 0.5),
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    cyl.position.set((a.x + b.x) / 2, y, (a.y + b.y) / 2);
+    cyl.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(dx, 0, dz).normalize(),
+    );
+    rayGroup.add(cyl);
+
+    const halo = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.055, 0.055, len, 8, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: glow,
+        transparent: true,
+        opacity: Math.min(0.28, 0.08 + intensity * 0.18),
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    halo.position.copy(cyl.position);
+    halo.quaternion.copy(cyl.quaternion);
+    rayGroup.add(halo);
+  }
 }
 
 interface Beam {
@@ -133,6 +210,14 @@ interface Beam {
   skipId: number | null;
   insidePrismId: number | null;
   depth: number;
+  spectral: SpectralId;
+}
+
+function pushBeam(queue: Beam[], beam: Omit<Beam, "spectral"> & { spectral?: SpectralId }) {
+  queue.push({
+    ...beam,
+    spectral: beam.spectral ?? "white",
+  });
 }
 
 export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
@@ -148,11 +233,12 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
       skipId: laser.id,
       insidePrismId: null,
       depth: 0,
+      spectral: "white",
     },
   ];
 
   let steps = 0;
-  while (queue.length && steps++ < 80) {
+  while (queue.length && steps++ < 120) {
     const beam = queue.shift()!;
     if (beam.intensity < 0.05 || beam.depth > MAX_BOUNCES) continue;
 
@@ -167,7 +253,6 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
         if (beam.insidePrismId !== null) continue;
         h = hitMirror(o, beam.origin, beam.dir);
       } else if (o.kind === "prism") {
-        // only consider this prism if we're outside any, or inside this one
         if (beam.insidePrismId !== null && beam.insidePrismId !== o.id) continue;
         h = hitPrismFace(o, beam.origin, beam.dir);
       }
@@ -178,46 +263,107 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
     }
 
     const end = beam.origin.clone().add(beam.dir.clone().multiplyScalar(bestT));
-    addRaySeg(rayGroup, beam.origin, end, beam.intensity);
+    addRaySeg(rayGroup, beam.origin, end, beam.intensity, beam.spectral);
     if (!hit) continue;
 
     const nextOrigin = end.clone().add(beam.dir.clone().multiplyScalar(0.04));
 
     if (hit.optic.kind === "mirror") {
-      queue.push({
+      pushBeam(queue, {
         origin: nextOrigin,
         dir: reflect(beam.dir, hit.normal),
         intensity: beam.intensity * 0.96,
         skipId: hit.optic.id,
         insidePrismId: null,
         depth: beam.depth + 1,
+        spectral: beam.spectral,
       });
       continue;
     }
 
     // Prism face
     const entering = beam.insidePrismId === null;
-    const eta = entering ? 1 / IOR : IOR;
-    const refracted = refract2d(beam.dir, hit.normal, eta);
-    if (!refracted) {
-      // total internal reflection
-      queue.push({
-        origin: nextOrigin,
-        dir: reflect(beam.dir, hit.normal),
-        intensity: beam.intensity * 0.92,
-        skipId: hit.optic.id,
-        insidePrismId: hit.optic.id,
-        depth: beam.depth + 1,
-      });
+
+    if (entering) {
+      const ior = iorFor(beam.spectral);
+      const eta = 1 / ior;
+      const refracted = refract2d(beam.dir, hit.normal, eta);
+      if (!refracted) {
+        pushBeam(queue, {
+          origin: nextOrigin,
+          dir: reflect(beam.dir, hit.normal),
+          intensity: beam.intensity * 0.92,
+          skipId: hit.optic.id,
+          insidePrismId: null,
+          depth: beam.depth + 1,
+          spectral: beam.spectral,
+        });
+      } else {
+        pushBeam(queue, {
+          origin: nextOrigin,
+          dir: refracted,
+          intensity: beam.intensity * 0.92,
+          skipId: hit.optic.id,
+          insidePrismId: hit.optic.id,
+          depth: beam.depth + 1,
+          spectral: beam.spectral,
+        });
+      }
+      continue;
+    }
+
+    // Exiting prism: white splits into R/G/B with dispersion; colored stays its channel.
+    if (beam.spectral === "white") {
+      const channels: Exclude<SpectralId, "white">[] = ["r", "g", "b"];
+      for (const ch of channels) {
+        const eta = SPECTRA[ch].ior; // n_glass / n_air when exiting
+        const refracted = refract2d(beam.dir, hit.normal, eta);
+        if (!refracted) {
+          pushBeam(queue, {
+            origin: nextOrigin,
+            dir: reflect(beam.dir, hit.normal),
+            intensity: beam.intensity * 0.85,
+            skipId: hit.optic.id,
+            insidePrismId: hit.optic.id,
+            depth: beam.depth + 1,
+            spectral: "white",
+          });
+        } else {
+          pushBeam(queue, {
+            origin: nextOrigin,
+            dir: refracted,
+            intensity: beam.intensity * 0.88,
+            skipId: hit.optic.id,
+            insidePrismId: null,
+            depth: beam.depth + 1,
+            spectral: ch,
+          });
+        }
+      }
     } else {
-      queue.push({
-        origin: nextOrigin,
-        dir: refracted,
-        intensity: beam.intensity * (entering ? 0.92 : 0.9),
-        skipId: hit.optic.id,
-        insidePrismId: entering ? hit.optic.id : null,
-        depth: beam.depth + 1,
-      });
+      const eta = iorFor(beam.spectral);
+      const refracted = refract2d(beam.dir, hit.normal, eta);
+      if (!refracted) {
+        pushBeam(queue, {
+          origin: nextOrigin,
+          dir: reflect(beam.dir, hit.normal),
+          intensity: beam.intensity * 0.92,
+          skipId: hit.optic.id,
+          insidePrismId: hit.optic.id,
+          depth: beam.depth + 1,
+          spectral: beam.spectral,
+        });
+      } else {
+        pushBeam(queue, {
+          origin: nextOrigin,
+          dir: refracted,
+          intensity: beam.intensity * 0.9,
+          skipId: hit.optic.id,
+          insidePrismId: null,
+          depth: beam.depth + 1,
+          spectral: beam.spectral,
+        });
+      }
     }
   }
 }
