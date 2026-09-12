@@ -1,8 +1,10 @@
 # Prism
 
+Top-down light lab: black room, white laser, mirrors and prisms. Compose light art in the browser (Vite + Three.js).
+
 ## Vision
 
-Prism is a top-down light lab: a black room, a placeable white laser with angle control, and optics — mirrors and prisms — that reflect and refract to draw light art. The camera is orthographic and top-down; light is white only. Interaction is drag/click to place and a rotate tool for aiming. The simplest honest implementation casts 2D ray segments as bright Three.js lines on a black plane. The long-term feel is a quiet optical sandbox for composing luminous diagrams and discovering accidental geometries.
+A quiet optical sandbox. Orthographic top-down camera. Light source is always white. Place a laser at any angle; bounce it with mirrors; bend it with prisms. The room stays black so beams read as luminous drawings.
 
 ## Play
 
@@ -11,27 +13,40 @@ npm install
 npm run dev
 ```
 
-Use the tool menu to place a laser, mirrors, or prisms. Switch to **Rotate** and click an optic to turn it. Rays update live. **Erase** removes nearest optic; **Clear optics** resets the table.
+Node `>=18 <21`. Works on Windows / Linux / macOS browsers.
+
+| Input | Action |
+| --- | --- |
+| Tool menu / keys `1` `2` `3` | Laser / mirror / prism |
+| Click empty space | Place current optic |
+| Drag optic | Move |
+| Scroll over optic | Fine rotate |
+| `R` / Rotate tool | Step rotate |
+| `E` | Erase |
+| `M` / Shift-click | Move mode |
+| Clear lab | Reset |
 
 ## Develop
 
 ```
-prism/
-  index.html
-  package.json
-  vite.config.ts
-  tsconfig.json
-  src/
-    main.ts       # orthographic lab, 2D raycast reflect/refract, tools
-    style.css
-    vite-env.d.ts
+src/
+  main.ts          # lab boot, input, starter layout
+  lab/
+    types.ts
+    optics.ts      # meshes + laser emit point
+    rays.ts        # 2D raycast reflect / refract
+  style.css
 ```
+
+## Build slices (ship independently)
+
+- **S1 (done):** Laser + mirrors — place, drag, scroll-rotate, soft white beams, bounce skip, modular `lab/`
+- **S2 (next):** Prism enter/exit refraction polish + tool palette UX
+- **S3 (next):** Save / load layouts (localStorage) + shareable JSON
 
 ## Roadmap
 
-- Spectral white → RGB split through prisms
-- Curved mirrors and lenses
-- Save / share light art layouts
-- Beam blockers and apertures
-- Animated rotating optics for kinetic light art
-- Export frames / SVG ray diagrams
+- Spectral split (still white source → RGB art mode toggle)
+- Lenses, apertures, blockers
+- Kinetic rotating optics
+- Export SVG / PNG ray diagrams

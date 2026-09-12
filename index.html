@@ -10,20 +10,25 @@
     <div id="app">
       <canvas id="c"></canvas>
       <aside class="panel">
-        <h2>Light lab</h2>
+        <h2>Prism</h2>
+        <p class="tag">Light lab · white only</p>
         <label>Tool
           <select id="tool">
-            <option value="laser">Place laser</option>
-            <option value="mirror">Place mirror</option>
-            <option value="prism">Place prism</option>
-            <option value="rotate">Rotate</option>
-            <option value="erase">Erase</option>
+            <option value="laser">1 · Laser</option>
+            <option value="mirror">2 · Mirror</option>
+            <option value="prism">3 · Prism</option>
+            <option value="move">M · Move</option>
+            <option value="rotate">R · Rotate</option>
+            <option value="erase">E · Erase</option>
           </select>
         </label>
-        <button id="clear" type="button">Clear optics</button>
-        <p class="note">White light only · Orthographic top-down · Click to place · Rotate tool then click optic</p>
+        <button id="clear" type="button">Clear lab</button>
+        <p class="note">
+          Top-down black room. Place optics, drag to move, scroll to rotate.
+          Beams stay white. Sections ship independently — S1 laser+mirrors solid; prisms refine in S2.
+        </p>
       </aside>
-      <div id="hud" class="hud">Click to place · Rotate tool spins optics · Rays reflect / refract as bright lines</div>
+      <div id="hud" class="hud">Loading…</div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
