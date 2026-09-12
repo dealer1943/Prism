@@ -21,13 +21,14 @@ const SPECTRA: Record<
   Exclude<SpectralId, "white">,
   { ior: number; color: number; glow: number }
 > = {
-  red: { ior: 1.48, color: 0xff1a1a, glow: 0xff5555 },
-  orange: { ior: 1.50, color: 0xff7a12, glow: 0xffaa55 },
-  yellow: { ior: 1.52, color: 0xffe014, glow: 0xfff088 },
-  green: { ior: 1.54, color: 0x1cff4a, glow: 0x88ffaa },
-  blue: { ior: 1.56, color: 0x1a6aff, glow: 0x6699ff },
-  indigo: { ior: 1.58, color: 0x5b2dff, glow: 0x8866cc },
-  violet: { ior: 1.60, color: 0x9b30ff, glow: 0xcc88ff },
+  // Exact rainbow hex (user-specified)
+  red: { ior: 1.48, color: 0xff0000, glow: 0xff0000 },
+  orange: { ior: 1.5, color: 0xff7f00, glow: 0xff7f00 },
+  yellow: { ior: 1.52, color: 0xffff00, glow: 0xffff00 },
+  green: { ior: 1.54, color: 0x00ff00, glow: 0x00ff00 },
+  blue: { ior: 1.56, color: 0x0000ff, glow: 0x0000ff },
+  indigo: { ior: 1.58, color: 0x4b0082, glow: 0x4b0082 },
+  violet: { ior: 1.6, color: 0x8b00ff, glow: 0x8b00ff },
 };
 
 const ROYGBIV: Exclude<SpectralId, "white">[] = [
@@ -193,69 +194,64 @@ function addRaySeg(
   intensity: number,
   spectral: SpectralId,
 ) {
-  const { core, glow } = beamColors(spectral);
-  const y = 0.18;
-  const pts = [new THREE.Vector3(a.x, y, a.y), new THREE.Vector3(b.x, y, b.y)];
+  const { core } = beamColors(spectral);
+  const yCore = 0.2;
+  const yUnder = 0.12;
+  const ptsCore = [new THREE.Vector3(a.x, yCore, a.y), new THREE.Vector3(b.x, yCore, b.y)];
 
-  // Soft glow halo (additive)
-  const glowGeo = new THREE.BufferGeometry().setFromPoints(pts);
-  const glowMat = new THREE.LineBasicMaterial({
-    color: glow,
-    transparent: true,
-    opacity: Math.min(0.55, 0.18 + intensity * 0.35),
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  rayGroup.add(new THREE.Line(glowGeo, glowMat));
-
-  // Bright core
-  const coreGeo = new THREE.BufferGeometry().setFromPoints(pts);
+  // Opaque core laser line
+  const coreGeo = new THREE.BufferGeometry().setFromPoints(ptsCore);
   const coreMat = new THREE.LineBasicMaterial({
     color: core,
     transparent: true,
-    opacity: Math.min(1, 0.55 + intensity * 0.45),
+    opacity: Math.min(1, 0.92 + intensity * 0.08),
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
   rayGroup.add(new THREE.Line(coreGeo, coreMat));
 
-  // Thin cylinder for volume feel when segment is long enough
   const dx = b.x - a.x;
   const dz = b.y - a.y;
   const len = Math.hypot(dx, dz);
-  if (len > 0.15) {
-    const cyl = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.018, 0.018, len, 6, 1, true),
-      new THREE.MeshBasicMaterial({
-        color: core,
-        transparent: true,
-        opacity: Math.min(0.85, 0.35 + intensity * 0.5),
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-    );
-    cyl.position.set((a.x + b.x) / 2, y, (a.y + b.y) / 2);
-    cyl.quaternion.setFromUnitVectors(
+  if (len > 0.12) {
+    const mid = new THREE.Vector3((a.x + b.x) / 2, yCore, (a.y + b.y) / 2);
+    const quat = new THREE.Quaternion().setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
       new THREE.Vector3(dx, 0, dz).normalize(),
     );
-    rayGroup.add(cyl);
 
-    const halo = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.055, 0.055, len, 8, 1, true),
+    // Bright opaque core volume
+    const cyl = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.022, 0.022, len, 8, 1, true),
       new THREE.MeshBasicMaterial({
-        color: glow,
+        color: core,
         transparent: true,
-        opacity: Math.min(0.28, 0.08 + intensity * 0.18),
+        opacity: 0.95,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
     );
-    halo.position.copy(cyl.position);
-    halo.quaternion.copy(cyl.quaternion);
-    rayGroup.add(halo);
+    cyl.position.copy(mid);
+    cyl.quaternion.copy(quat);
+    rayGroup.add(cyl);
+
+    // Wider undersurface reflection (20% opacity)
+    const under = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.085, 0.085, len, 10, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: core,
+        transparent: true,
+        opacity: 0.2,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    under.position.set(mid.x, yUnder, mid.z);
+    under.quaternion.copy(quat);
+    rayGroup.add(under);
   }
 }
+
 
 interface Beam {
   origin: THREE.Vector2;
