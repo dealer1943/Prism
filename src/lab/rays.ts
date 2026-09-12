@@ -2,24 +2,30 @@ import * as THREE from "three";
 import type { Optic } from "./types";
 import { laserDir, laserOrigin } from "./optics";
 
+const IOR = 1.52;
+const MAX_BOUNCES = 40;
+const MAX_DIST = 52;
+
 function reflect(dir: THREE.Vector2, normal: THREE.Vector2): THREE.Vector2 {
   const n = normal.clone().normalize();
   return dir.clone().sub(n.multiplyScalar(2 * dir.dot(n))).normalize();
 }
 
-function refract2d(dir: THREE.Vector2, normal: THREE.Vector2, eta: number): THREE.Vector2 {
+/** eta = n1/n2 relative; normal points against incoming if needed. */
+function refract2d(dir: THREE.Vector2, normal: THREE.Vector2, eta: number): THREE.Vector2 | null {
   const n = normal.clone().normalize();
-  let d = dir.clone().normalize();
-  let cosi = -n.dot(d);
+  const d = dir.clone().normalize();
+  let cosi = THREE.MathUtils.clamp(-n.dot(d), -1, 1);
   let et = eta;
+  let nn = n;
   if (cosi < 0) {
     cosi = -cosi;
-    n.negate();
+    nn = n.clone().negate();
     et = 1 / eta;
   }
   const k = 1 - et * et * (1 - cosi * cosi);
-  if (k < 0) return reflect(d, n);
-  return d.multiplyScalar(et).add(n.multiplyScalar(et * cosi - Math.sqrt(k))).normalize();
+  if (k < 0) return null; // TIR
+  return d.multiplyScalar(et).add(nn.multiplyScalar(et * cosi - Math.sqrt(k))).normalize();
 }
 
 function raySegIntersect(
@@ -39,20 +45,18 @@ function raySegIntersect(
   return null;
 }
 
-function hitMirror(o: Optic, origin: THREE.Vector2, dir: THREE.Vector2) {
+function mirrorSegment(o: Optic): { a: THREE.Vector2; b: THREE.Vector2; normal: THREE.Vector2 } {
   const half = 0.75;
   const along = new THREE.Vector2(Math.cos(o.angle), Math.sin(o.angle));
   const normal = new THREE.Vector2(-Math.sin(o.angle), Math.cos(o.angle));
-  const a = o.pos.clone().add(along.clone().multiplyScalar(-half));
-  const b = o.pos.clone().add(along.clone().multiplyScalar(half));
-  const t = raySegIntersect(origin, dir, a, b);
-  if (t === null) return null;
-  const n = normal.clone();
-  if (dir.dot(n) > 0) n.negate();
-  return { t, normal: n };
+  return {
+    a: o.pos.clone().add(along.clone().multiplyScalar(-half)),
+    b: o.pos.clone().add(along.clone().multiplyScalar(half)),
+    normal,
+  };
 }
 
-function hitPrism(o: Optic, origin: THREE.Vector2, dir: THREE.Vector2) {
+function prismVerts(o: Optic): THREE.Vector2[] {
   const local = [
     new THREE.Vector2(0, 0.75),
     new THREE.Vector2(-0.65, -0.5),
@@ -60,9 +64,22 @@ function hitPrism(o: Optic, origin: THREE.Vector2, dir: THREE.Vector2) {
   ];
   const c = Math.cos(o.angle);
   const s = Math.sin(o.angle);
-  const verts = local.map(
+  return local.map(
     (v) => new THREE.Vector2(o.pos.x + v.x * c - v.y * s, o.pos.y + v.x * s + v.y * c),
   );
+}
+
+function hitMirror(o: Optic, origin: THREE.Vector2, dir: THREE.Vector2) {
+  const { a, b, normal } = mirrorSegment(o);
+  const t = raySegIntersect(origin, dir, a, b);
+  if (t === null) return null;
+  const n = normal.clone();
+  if (dir.dot(n) > 0) n.negate();
+  return { t, normal: n };
+}
+
+function hitPrismFace(o: Optic, origin: THREE.Vector2, dir: THREE.Vector2) {
+  const verts = prismVerts(o);
   let bestT = Infinity;
   let bestN: THREE.Vector2 | null = null;
   for (let i = 0; i < 3; i++) {
@@ -73,6 +90,7 @@ function hitPrism(o: Optic, origin: THREE.Vector2, dir: THREE.Vector2) {
       bestT = t;
       const edge = b.clone().sub(a);
       const n = new THREE.Vector2(-edge.y, edge.x).normalize();
+      // outward-ish: point against incoming
       if (dir.dot(n) > 0) n.negate();
       bestN = n;
     }
@@ -96,17 +114,25 @@ function addRaySeg(rayGroup: THREE.Group, a: THREE.Vector2, b: THREE.Vector2, in
   const mat = new THREE.LineBasicMaterial({
     color: 0xffffff,
     transparent: true,
-    opacity: Math.min(1, 0.4 + intensity * 0.6),
+    opacity: Math.min(1, 0.45 + intensity * 0.55),
   });
   rayGroup.add(new THREE.Line(geo, mat));
-  // soft glow twin
   const geo2 = new THREE.BufferGeometry().setFromPoints(pts);
   const mat2 = new THREE.LineBasicMaterial({
     color: 0xffffff,
     transparent: true,
-    opacity: Math.min(0.35, 0.12 + intensity * 0.2),
+    opacity: Math.min(0.4, 0.14 + intensity * 0.22),
   });
   rayGroup.add(new THREE.Line(geo2, mat2));
+}
+
+interface Beam {
+  origin: THREE.Vector2;
+  dir: THREE.Vector2;
+  intensity: number;
+  skipId: number | null;
+  insidePrismId: number | null;
+  depth: number;
 }
 
 export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
@@ -114,47 +140,84 @@ export function traceRays(optics: Optic[], rayGroup: THREE.Group) {
   const laser = optics.find((o) => o.kind === "laser");
   if (!laser) return;
 
-  let origin = laserOrigin(laser);
-  let dir = laserDir(laser);
-  let intensity = 1;
-  let skipId: number | null = laser.id;
+  const queue: Beam[] = [
+    {
+      origin: laserOrigin(laser),
+      dir: laserDir(laser),
+      intensity: 1,
+      skipId: laser.id,
+      insidePrismId: null,
+      depth: 0,
+    },
+  ];
 
-  for (let bounce = 0; bounce < 32; bounce++) {
-    let bestT = 48;
+  let steps = 0;
+  while (queue.length && steps++ < 80) {
+    const beam = queue.shift()!;
+    if (beam.intensity < 0.05 || beam.depth > MAX_BOUNCES) continue;
+
+    let bestT = MAX_DIST;
     let hit: { optic: Optic; normal: THREE.Vector2; t: number } | null = null;
+
     for (const o of optics) {
-      if (o.id === skipId) continue;
+      if (o.id === beam.skipId) continue;
       if (o.kind === "laser") continue;
       let h: { t: number; normal: THREE.Vector2 } | null = null;
-      if (o.kind === "mirror") h = hitMirror(o, origin, dir);
-      else if (o.kind === "prism") h = hitPrism(o, origin, dir);
-      if (h && h.t > 0.04 && h.t < bestT) {
+      if (o.kind === "mirror") {
+        if (beam.insidePrismId !== null) continue;
+        h = hitMirror(o, beam.origin, beam.dir);
+      } else if (o.kind === "prism") {
+        // only consider this prism if we're outside any, or inside this one
+        if (beam.insidePrismId !== null && beam.insidePrismId !== o.id) continue;
+        h = hitPrismFace(o, beam.origin, beam.dir);
+      }
+      if (h && h.t > 0.035 && h.t < bestT) {
         bestT = h.t;
         hit = { optic: o, normal: h.normal, t: h.t };
       }
     }
-    const end = origin.clone().add(dir.clone().multiplyScalar(bestT));
-    addRaySeg(rayGroup, origin, end, intensity);
-    if (!hit) break;
-    origin = end.clone().add(dir.clone().multiplyScalar(0.03));
-    skipId = hit.optic.id;
+
+    const end = beam.origin.clone().add(beam.dir.clone().multiplyScalar(bestT));
+    addRaySeg(rayGroup, beam.origin, end, beam.intensity);
+    if (!hit) continue;
+
+    const nextOrigin = end.clone().add(beam.dir.clone().multiplyScalar(0.04));
+
     if (hit.optic.kind === "mirror") {
-      dir = reflect(dir, hit.normal);
-      intensity *= 0.96;
+      queue.push({
+        origin: nextOrigin,
+        dir: reflect(beam.dir, hit.normal),
+        intensity: beam.intensity * 0.96,
+        skipId: hit.optic.id,
+        insidePrismId: null,
+        depth: beam.depth + 1,
+      });
+      continue;
+    }
+
+    // Prism face
+    const entering = beam.insidePrismId === null;
+    const eta = entering ? 1 / IOR : IOR;
+    const refracted = refract2d(beam.dir, hit.normal, eta);
+    if (!refracted) {
+      // total internal reflection
+      queue.push({
+        origin: nextOrigin,
+        dir: reflect(beam.dir, hit.normal),
+        intensity: beam.intensity * 0.92,
+        skipId: hit.optic.id,
+        insidePrismId: hit.optic.id,
+        depth: beam.depth + 1,
+      });
     } else {
-      // enter + exit approximation: bend twice along travel through prism
-      dir = refract2d(dir, hit.normal, 1 / 1.5);
-      intensity *= 0.88;
-      // second face along new dir
-      const h2 = hitPrism(hit.optic, origin, dir);
-      if (h2 && h2.t > 0.05 && h2.t < 2.5) {
-        const mid = origin.clone().add(dir.clone().multiplyScalar(h2.t));
-        addRaySeg(rayGroup, origin, mid, intensity);
-        origin = mid.add(dir.clone().multiplyScalar(0.03));
-        dir = refract2d(dir, h2.normal, 1.5);
-        intensity *= 0.9;
-        skipId = hit.optic.id;
-      }
+      queue.push({
+        origin: nextOrigin,
+        dir: refracted,
+        intensity: beam.intensity * (entering ? 0.92 : 0.9),
+        skipId: hit.optic.id,
+        insidePrismId: entering ? hit.optic.id : null,
+        depth: beam.depth + 1,
+      });
     }
   }
 }

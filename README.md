@@ -40,8 +40,8 @@ src/
 
 ## Build slices (ship independently)
 
-- **S1 (done):** Laser + mirrors — place, drag, scroll-rotate, soft white beams, bounce skip, modular `lab/`
-- **S2 (next):** Prism enter/exit refraction polish + tool palette UX
+- **S1 (done):** Laser + mirrors — place, drag, scroll-rotate, soft white beams, modular `lab/`
+- **S2 (done):** Prism enter/exit refraction + TIR, beam queue, button tool palette, demo layout
 - **S3 (next):** Save / load layouts (localStorage) + shareable JSON
 
 ## Roadmap

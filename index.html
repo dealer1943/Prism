@@ -12,20 +12,26 @@
       <aside class="panel">
         <h2>Prism</h2>
         <p class="tag">Light lab · white only</p>
-        <label>Tool
-          <select id="tool">
-            <option value="laser">1 · Laser</option>
-            <option value="mirror">2 · Mirror</option>
-            <option value="prism">3 · Prism</option>
-            <option value="move">M · Move</option>
-            <option value="rotate">R · Rotate</option>
-            <option value="erase">E · Erase</option>
-          </select>
-        </label>
-        <button id="clear" type="button">Clear lab</button>
+        <div class="tools" id="tools">
+          <button type="button" data-tool="laser" class="active">1 Laser</button>
+          <button type="button" data-tool="mirror">2 Mirror</button>
+          <button type="button" data-tool="prism">3 Prism</button>
+          <button type="button" data-tool="move">M Move</button>
+          <button type="button" data-tool="rotate">R Rotate</button>
+          <button type="button" data-tool="erase">E Erase</button>
+        </div>
+        <select id="tool" hidden>
+          <option value="laser" selected>laser</option>
+          <option value="mirror">mirror</option>
+          <option value="prism">prism</option>
+          <option value="move">move</option>
+          <option value="rotate">rotate</option>
+          <option value="erase">erase</option>
+        </select>
+        <button id="clear" type="button" class="danger">Clear lab</button>
         <p class="note">
-          Top-down black room. Place optics, drag to move, scroll to rotate.
-          Beams stay white. Sections ship independently — S1 laser+mirrors solid; prisms refine in S2.
+          Drag optics to move. Scroll to aim. Prisms use enter/exit refraction with TIR.
+          S3 will add save/load layouts.
         </p>
       </aside>
       <div id="hud" class="hud">Loading…</div>

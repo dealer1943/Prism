@@ -7,6 +7,19 @@ const canvas = document.getElementById("c") as HTMLCanvasElement;
 const toolEl = document.getElementById("tool") as HTMLSelectElement;
 const clearBtn = document.getElementById("clear") as HTMLButtonElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
+const toolsRoot = document.getElementById("tools");
+
+function setTool(name: string) {
+  toolEl.value = name;
+  toolsRoot?.querySelectorAll("button").forEach((b) => {
+    b.classList.toggle("active", b.getAttribute("data-tool") === name);
+  });
+}
+toolsRoot?.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest("button[data-tool]") as HTMLButtonElement | null;
+  if (!btn) return;
+  setTool(btn.dataset.tool || "laser");
+});
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -170,12 +183,12 @@ function setHud(msg: string) {
 
 window.addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
-  if (k === "1") toolEl.value = "laser";
-  if (k === "2") toolEl.value = "mirror";
-  if (k === "3") toolEl.value = "prism";
-  if (k === "r") toolEl.value = "rotate";
-  if (k === "e") toolEl.value = "erase";
-  if (k === "m") toolEl.value = "move";
+  if (k === "1") setTool("laser");
+  if (k === "2") setTool("mirror");
+  if (k === "3") setTool("prism");
+  if (k === "r") setTool("rotate");
+  if (k === "e") setTool("erase");
+  if (k === "m") setTool("move");
   if (k === "c" && (e.ctrlKey || e.metaKey)) return;
   if (k === "escape") {
     optics.splice(0).forEach((o) => scene.remove(o.mesh));
@@ -183,16 +196,17 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-// Starter: laser + two mirrors (S1 demo path)
-place("laser", -7, 0);
-place("mirror", -1, 3);
-place("mirror", 4, -2);
-optics[1].angle = -Math.PI / 2.8;
-optics[2].angle = Math.PI / 3.2;
-syncMesh(optics[1]);
-syncMesh(optics[2]);
+// Starter: laser → mirror → prism (S2 demo path)
+place("laser", -8, 0);
+place("mirror", -2, 3.5);
+place("prism", 2.5, 0.5);
+place("mirror", 7, -3);
+optics[1].angle = -Math.PI / 2.6;
+optics[2].angle = Math.PI / 5;
+optics[3].angle = Math.PI / 2.8;
+for (const o of optics) syncMesh(o);
 redraw();
-setHud("S1: laser + mirrors · 1/2/3 tools · drag move · scroll rotate · R/E keys");
+setHud("S2: prisms refract (enter/exit + TIR) · 1/2/3 place · drag · scroll rotate");
 
 window.addEventListener("resize", () => {
   aspect = window.innerWidth / window.innerHeight;
